@@ -9,12 +9,12 @@ import shutil
 import sys
 
 
-def _shifttime(delta: int, instant: int) -> str:
+def _shifttime(instant: int, delta: int) -> str:
     instant += delta
     if instant < 0:
         return '00:00:00:000'
-    # millis
-    milliseconds = str(instant % 1000).zfill(3)
+    # milliseconds
+    millis = str(instant % 1000).zfill(3)
     instant = int(instant / 1000)
     # seconds
     seconds = str(instant % 60).zfill(2)
@@ -24,7 +24,7 @@ def _shifttime(delta: int, instant: int) -> str:
     instant -= instant % 3600
     # hours
     hours = str(int(instant / 3600)).zfill(2)
-    return f'{hours}:{minutes}:{seconds},{milliseconds}'
+    return f'{hours}:{minutes}:{seconds},{millis}'
 
 
 def _millis(values: [int, int, int, int]) -> int:
@@ -59,20 +59,20 @@ def shift(file: str, delta: int, offset: int) -> None:
                 # no need to shift
                 fw.write(line)
                 continue
-            fw.write(f'{_shifttime(delta, millis)} --> ')
+            fw.write(f'{_shifttime(millis, delta)} --> ')
 
             # second timestamp
             end = map(int, re.findall(r'\d+', timestamp2))
-            fw.write(f'{_shifttime(delta, _millis(end))}\n')
+            fw.write(f'{_shifttime(_millis(end), delta)}\n')
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Shift subtitle timestamps'
                                                  ' forward/backward.',
                                      epilog=f'Example of use: python3 {os.path.basename(__file__)}'
                                             ' -f 14500 -o 1:10:37'
                                             ' /path/to/subtitles.srt')
-    parser.add_argument('file.srt', help='path to the subtitles file')
+    parser.add_argument('file_srt', help='path to the subtitles file')
     parser.add_argument('-f', '--forward', metavar='DELTA', type=int,
                         help='shift DELTA ms forward')
     parser.add_argument('-b', '--backward', metavar='DELTA', type=int,
@@ -83,14 +83,14 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.forward is None and args.backward is None:
-        print("Either forward or backward values are required")
+        print('Either forward or backward values are required')
         parser.print_help()
         sys.exit(1)
     if args.forward is not None and args.backward is not None:
-        print("Only one option between forward and backward is allowed")
+        print('Only one option between forward and backward is allowed')
         parser.print_help()
         sys.exit(1)
-    delta = int(args.backward * -1) if args.forward is None else int(args.forward)
+    delta = args.backward * -1 if args.forward is None else args.forward
     offset = 0
     if args.offset is not None and re.match('^('
                                             r'(\d+:[0-5]?\d:)'  # hours & minutes
@@ -99,10 +99,9 @@ if __name__ == "__main__":
                                             ')?'
                                             r'[0-5]?\d$', args.offset):
         time_chunks = list(map(int, re.findall(r'\d+', args.offset)))
-        for idx, n in enumerate(time_chunks[::-1]):
-            offset += 60 ** idx * n * 1000
-        print(f"Starting at offset: {offset}ms")
+        offset = sum(60 ** idx * n * 1000 for idx, n in enumerate(time_chunks[::-1]))
+        print(f'Starting at offset: {offset}ms')
     elif args.offset is not None:
-        print("Invalid offset format")
+        print('Invalid offset format')
         sys.exit(1)
-    shift(args.file, delta, offset)
+    shift(args.file_srt, delta, offset)
