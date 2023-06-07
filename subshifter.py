@@ -1,204 +1,109 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 
+from pathlib import Path
 import argparse
 import os
 import re
 import shutil
 import sys
 
-def shifttime(vect, step, offset, time):
-    time += step
-    if time < 0:
+
+def _shifttime(delta: int, instant: int) -> str:
+    instant += delta
+    if instant < 0:
         return ['00', '00', '00', '000']
     # millis
-    if time%1000 < 100:
-        if time%1000 < 10:
-            vect[3] = '00' + str(time%1000)
-        else:
-            vect[3] = '0' + str(time%1000)
-    else:
-        vect[3] = str(time%1000)
-    time /= 1000
+    milliseconds = str(instant % 1000).zfill(3)
+    instant = int(instant / 1000)
     # seconds
-    if time%60 == 0:
-        vect[2] = '00'
-    elif time%60 < 10:
-        vect[2] = '0' + str(time%60)
-    else:
-        vect[2] = str(time%60)
-    time -= time%60
+    seconds = str(instant % 60).zfill(2)
+    instant -= instant % 60
     # minutes
-    if time%3600 == 0:
-        vect[1] = '00'
-    elif time%3600/60 < 10:
-        vect[1] = '0' + str(time%3600/60)
-    else:
-        vect[1] = str(time%3600/60)
-    time -= time%3600
+    minutes = str(int(instant % 3600 / 60)).zfill(2)
+    instant -= instant % 3600
     # hours
-    if time/3600 == 0:
-        vect[0] = '00'
-    elif time/3600 < 10:
-        vect[0] = '0' + str(time/3600)
-    else:
-        vect[0] = str(time/3600)
-    return vect
+    hours = str(int(instant / 3600)).zfill(2)
+    return f'{hours}:{minutes}:{seconds},{milliseconds}'
 
-def shift(filename, value, offset):
-    try:
-        f = open(filename, "r")
-    except IOError:
-        print 'File "%s" not found' % filename
-        sys.exit(1)
 
-    lines = f.readlines()
-    f.close()
+def _millis(values: [int, int, int, int]) -> int:
+    return sum(map(lambda x: x[0] * x[1], zip([3600000, 60000, 1000, 1], values)))
 
-    fullpath = os.getcwd() + '/' + os.path.basename(filename)
 
-    # make a copy
-    shutil.copyfile(fullpath, fullpath + '.old')
-    os.remove(fullpath)
-
-    filexists = 1
-    try:
-        f = open(fullpath, "r")
-    except IOError:
-        # file does not exist, we can create one
-        filexists = 0
-        try:
-            f.close()
-            f = open(fullpath, "w")
-        except Exception, e:
-            print e
-            sys.exit(1)
-    if filexists:
-        f.close()
-        res = raw_input('File "' + fullpath +
-                        '" already exists, wanna overwrite it? '
-                        '(y/n)\n> ')
-        if res.lower() != 'y':
+def shift(file: str, delta: int, offset: int) -> None:
+    backup = f'{file}.old'
+    if Path(backup).exists():
+        resp = None
+        while resp is None or resp not in 'yYnN':
+            resp = input(f'File {backup} will be overwritten, continue? (y/N) ')
+        if resp in 'nN':
+            print('Aborted')
             sys.exit(0)
-        else:
-            os.remove(fullpath)
-            try:
-                f = open(fullpath, "w")
-            except Exception, e:
-                print e
-                sys.exit(1)
-
-    for s in lines:
-        match = re.search("^[\s]*[0-9]{1,2}:"
-                          "[0-9]{1,2}:"
-                          "[0-9]{1,2},[0-9]{1,3}"
-                          "[\s]+-->[\s]+"
-                          "[0-9]{1,2}:"
-                          "[0-9]{1,2}:"
-                          "[0-9]{1,2},[0-9]{1,3}[\s]*", s)
-        if match is not None:
-            pattern = re.compile("[0-9]{1,2}:"
-                                 "[0-9]{1,2}:"
-                                 "[0-9]{1,2},[0-9]{1,3}")
-            chunks = re.findall(pattern, match.group())
+        os.remove(backup)
+    shutil.copy2(file, backup)
+    os.remove(file)
+    timestamp_pattern = '[0-9]{1,2}:[0-9]{1,2}:[0-9]{1,2},[0-9]{1,3}'
+    with open(backup) as fr, open(file, 'w') as fw:
+        while (line := fr.readline()):
+            match = re.search(timestamp_pattern + r'\s+-->\s+' + timestamp_pattern, line)
+            if not match:
+                fw.write(line)
+                continue
+            timestamps = re.findall(timestamp_pattern, line)  # TODO regex groups
 
             # first timestamp
-            begin = chunks[0].split(':')
-            begin = [begin[0],
-                     begin[1],
-                     begin[2].split(',')[0],
-                     begin[2].split(',')[1]]
-            # second timestamp
-            end = chunks[1].split(':')
-            end = [end[0], end[1],
-                   end[2].split(',')[0],
-                   end[2].split(',')[1]]
-
-            # convert in millis
-            time = int(begin[3]) + int(begin[2])*1000 +\
-                int(begin[1])*60*1000 + int(begin[0])*60*60*1000
-
-            if offset is not None and time < offset:
+            start = map(int, re.findall(r'\d+', timestamps[0]))
+            # convert to millis
+            millis = _millis(start)
+            if offset is not None and millis < offset:
                 # no need to shift
-                f.write(begin[0] + ':' + begin[1] + ':' +
-                        begin[2] + ',' + begin[3])
-                f.write(' --> ')
-                f.write(end[0] + ':' + end[1] + ':' + end[2] + ',' + end[3])
-                f.write('\r\n')
+                fw.write(line)
                 continue
+            fw.write(f'{_shifttime(delta, millis)} --> ')
 
-            # shift first timestamp
-            begin = shifttime(begin, value, offset, time)
-            if begin is None:
-                print "ERROR: begin is none " , chunks
-                continue
+            # second timestamp
+            end = map(int, re.findall(r'\d+', timestamps[1]))
+            fw.write(f'{_shifttime(delta, _millis(end))}\n')
 
-            f.write(begin[0] + ':' + begin[1] + ':' + begin[2] +
-                    ',' + begin[3])
 
-            f.write(' --> ')
-
-            # convert in millis
-            time = int(end[3]) + int(end[2])*1000 +\
-                int(end[1])*60*1000 + int(end[0])*60*60*1000
-            # shift second timestamp
-            end = shifttime(end, value, offset, time)
-            if end is None:
-                print "ERROR: end is none " , chunks
-                continue
-
-            f.write(end[0] + ':' + end[1] + ':' + end[2] + ',' + end[3])
-            f.write('\r\n')
-        else:
-            f.write(s)
-    f.close()
-
-if __name__=="__main__":
-    parser = argparse.ArgumentParser(description='Shift subtitles file'
-                                                 'backward/forward of a '
-                                                 'millisecond value.',
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Shift subtitle timestamps'
+                                                 'forward/backward.',
                                      epilog='Example of use: python subshifter'
                                             ' -f 14500 -o 1:10:37'
                                             ' subtitles-file.srt')
     parser.add_argument('file', help='path to subtitles file')
-    parser.add_argument('-f', '--forward', metavar='NUM', type=int,
-                        help='number of millisec to shift forward')
-    parser.add_argument('-b', '--backward', metavar='NUM', type=int,
-                        help='number of millisec to shift backward')
+    parser.add_argument('-f', '--forward', metavar='DELTA', type=int,
+                        help='shift DELTA ms forward')
+    parser.add_argument('-b', '--backward', metavar='DELTA', type=int,
+                        help='shift DELTA ms backward')
     parser.add_argument('-o', '--offset',
                         help='offset [[Hours:]Minutes:]Seconds - subtitles will'
-                        ' be shifted starting from this timestamp')
+                        ' be shifted starting from this instant')
     args = parser.parse_args()
 
     if args.forward is None and args.backward is None:
-        print "Either forward or backward shift value must be specified."
+        print("Either forward or backward values are required")
         parser.print_help()
         sys.exit(1)
     if args.forward is not None and args.backward is not None:
-        print "Only one option between forward and backward can be specified."
+        print("Only one option between forward and backward is allowed")
         parser.print_help()
         sys.exit(1)
-    if args.forward is None:
-        step = int(args.backward*-1)
-    else:
-        step = int(args.forward)
+    delta = int(args.backward * -1) if args.forward is None else int(args.forward)
     offset = 0
-    if args.offset is not None:
-        match = re.search("^("
-                          "([0-9]+:[0-5]{0,1}[0-9]{1}:)" # hours & minutes
-                          "|"
-                          "([0-5]{0,1}[0-9]{1}:)" # minutes only
-                          "){0,1}"
-                          "[0-9]{1,2}$", args.offset)
-        if match is not None:
-            chunks = args.offset.split(':')
-            for i in range(0, len(chunks)):
-                if i is 0:
-                    offset += int(chunks[::-1][i])*1000
-                else:
-                    offset += 60**i*int(chunks[::-1][i])*1000
-            print "Valid offset format:", offset, "ms"
-        else:
-            print "Invalid offset format"
-            sys.exit(1)
-    shift(args.file, step, offset)
-
+    if args.offset is not None and re.match('^('
+                                            r'(\d+:[0-5]{,1}\d:)'  # hours & minutes
+                                            '|'
+                                            r'([0-5]{,1}\d:)'  # minutes only
+                                            '){,1}'
+                                            r'[0-5]{,1}\d$', args.offset):
+        time_chunks = list(map(int, re.findall(r'\d+', args.offset)))
+        for idx, n in enumerate(time_chunks[::-1]):
+            offset += 60 ** idx * n * 1000
+        print(f"Starting at offset: {offset}ms")
+    elif args.offset is not None:
+        print("Invalid offset format")
+        sys.exit(1)
+    shift(args.file, delta, offset)
