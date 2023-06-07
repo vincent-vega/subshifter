@@ -12,7 +12,7 @@ import sys
 def _shifttime(delta: int, instant: int) -> str:
     instant += delta
     if instant < 0:
-        return ['00', '00', '00', '000']
+        return '00:00:00:000'
     # millis
     milliseconds = str(instant % 1000).zfill(3)
     instant = int(instant / 1000)
@@ -32,7 +32,7 @@ def _millis(values: [int, int, int, int]) -> int:
 
 
 def shift(file: str, delta: int, offset: int) -> None:
-    backup = f'{file}.old'
+    backup = f'{file}.backup'
     if Path(backup).exists():
         resp = None
         while resp is None or resp not in 'yYnN':
@@ -43,18 +43,17 @@ def shift(file: str, delta: int, offset: int) -> None:
         os.remove(backup)
     shutil.copy2(file, backup)
     os.remove(file)
-    timestamp_pattern = '[0-9]{1,2}:[0-9]{1,2}:[0-9]{1,2},[0-9]{1,3}'
+    timestamp_pattern = r'\d{1,2}:\d{1,2}:\d{1,2},\d{1,3}'
     with open(backup) as fr, open(file, 'w') as fw:
         while (line := fr.readline()):
-            match = re.search(timestamp_pattern + r'\s+-->\s+' + timestamp_pattern, line)
+            match = re.search(f'^\\s*({timestamp_pattern})\\s+-->\\s+({timestamp_pattern})\\s*$', line)
             if not match:
                 fw.write(line)
                 continue
-            timestamps = re.findall(timestamp_pattern, line)  # TODO regex groups
+            timestamp1, timestamp2 = match.groups()
 
             # first timestamp
-            start = map(int, re.findall(r'\d+', timestamps[0]))
-            # convert to millis
+            start = map(int, re.findall(r'\d+', timestamp1))
             millis = _millis(start)
             if offset is not None and millis < offset:
                 # no need to shift
@@ -63,17 +62,17 @@ def shift(file: str, delta: int, offset: int) -> None:
             fw.write(f'{_shifttime(delta, millis)} --> ')
 
             # second timestamp
-            end = map(int, re.findall(r'\d+', timestamps[1]))
+            end = map(int, re.findall(r'\d+', timestamp2))
             fw.write(f'{_shifttime(delta, _millis(end))}\n')
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Shift subtitle timestamps'
-                                                 'forward/backward.',
-                                     epilog='Example of use: python subshifter'
+                                                 ' forward/backward.',
+                                     epilog=f'Example of use: python3 {os.path.basename(__file__)}'
                                             ' -f 14500 -o 1:10:37'
-                                            ' subtitles-file.srt')
-    parser.add_argument('file', help='path to subtitles file')
+                                            ' /path/to/subtitles.srt')
+    parser.add_argument('file.srt', help='path to the subtitles file')
     parser.add_argument('-f', '--forward', metavar='DELTA', type=int,
                         help='shift DELTA ms forward')
     parser.add_argument('-b', '--backward', metavar='DELTA', type=int,
@@ -94,11 +93,11 @@ if __name__ == "__main__":
     delta = int(args.backward * -1) if args.forward is None else int(args.forward)
     offset = 0
     if args.offset is not None and re.match('^('
-                                            r'(\d+:[0-5]{,1}\d:)'  # hours & minutes
+                                            r'(\d+:[0-5]?\d:)'  # hours & minutes
                                             '|'
-                                            r'([0-5]{,1}\d:)'  # minutes only
-                                            '){,1}'
-                                            r'[0-5]{,1}\d$', args.offset):
+                                            r'([0-5]?\d:)'  # minutes only
+                                            ')?'
+                                            r'[0-5]?\d$', args.offset):
         time_chunks = list(map(int, re.findall(r'\d+', args.offset)))
         for idx, n in enumerate(time_chunks[::-1]):
             offset += 60 ** idx * n * 1000

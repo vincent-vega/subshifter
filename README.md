@@ -1,12 +1,13 @@
 # subshifter
 Subtitle shifter tool
 
-usage: subshifter.py [-h] [-f DELTA] [-b DELTA] [-o OFFSET] file
+```
+usage: subshifter.py [-h] [-f DELTA] [-b DELTA] [-o OFFSET] file.srt
 
-Shift subtitle timestampsforward/backward.
+Shift subtitle timestamps forward/backward.
 
 positional arguments:
-  file                  path to subtitles file
+  file.srt              path to the subtitles file
 
 options:
   -h, --help            show this help message and exit
@@ -18,4 +19,5 @@ options:
                         offset [[Hours:]Minutes:]Seconds - subtitles will be
                         shifted starting from this instant
 
-Example of use: python subshifter -f 14500 -o 1:10:37 subtitles-file.srt
+Example of use: python3 subshifter.py -f 14500 -o 1:10:37 /path/to/subtitles.srt
+```
